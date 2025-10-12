@@ -1,0 +1,108 @@
+/* Navbar */
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 15px 30px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.navbar-left {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+}
+
+.bank-logo {
+  width: 50px;
+  height: auto;
+}
+
+.home-icon {
+  font-size: 22px;
+  cursor: pointer;
+}
+
+/* Nav Item - The main hover zone */
+.nav-item {
+  position: relative;
+  font-size: 16px;
+  cursor: pointer;
+  color: #004C97;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.nav-item:hover {
+  color: #0072CE;
+}
+
+/* Dropdown Container */
+.dropdown-content {
+  display: none;
+  position: absolute;
+  top: 100%; 
+  left: 0;
+  background-color: white;
+  box-shadow: 0px 4px 6px rgba(0,0,0,0.1);
+  border-radius: 6px;
+  min-width: 160px;
+  overflow: hidden;
+  z-index: 100;
+  
+  /* 🌟 KEY CHANGE 1: Add a small top padding to create the gap */
+  padding-top: 5px; 
+}
+
+/* Activation */
+.nav-item:hover .dropdown-content {
+  display: block;
+}
+
+/* Dropdown Items (Links) */
+.dropdown-item {
+  /* Fixes for <Link> component rendering as <a> */
+  text-decoration: none; 
+  color: #333; 
+  display: block; 
+  
+  /* Visual spacing */
+  padding: 10px 15px;
+  font-size: 14px;
+  cursor: pointer; 
+  transition: background-color 0.2s ease;
+  
+  /* 🌟 KEY CHANGE 2: Use negative margin to pull the content up 
+     so that the visual gap is filled by the hoverable padding of the parent (.nav-item). */
+  margin-top: -5px; 
+}
+
+.dropdown-item:hover {
+  background-color: #e6f0fa; 
+  color: #0072CE;
+}
+
+/* Sign Out Button */
+.navbar-right .signout-btn {
+  background-color: #0072CE;
+  color: white;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-right: 10px;
+}
+
+.navbar-right .signout-btn:hover {
+  background-color: #005a9e;
+}
+
+/* Responsive Navbar styles */
+@media (max-width: 900px) {
+  .navbar-left {
+    flex-wrap: wrap;
+    gap: 15px;
+  }
+}
