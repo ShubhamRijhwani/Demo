@@ -1,0 +1,157 @@
+Model — User.java
+
+package com.neobank.model;
+
+import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+@Entity
+@Table(name = "users")
+public class User {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String userId;          // username or email
+    private String groupId;         // optional (for your app)
+    private String mobileNumber;
+    private String securityQuestion;
+    private String securityAnswer;
+
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    private String password;        // hidden from response JSON
+
+    public User() {}
+
+    public User(String userId, String groupId, String mobileNumber,
+                String securityQuestion, String securityAnswer, String password) {
+        this.userId = userId;
+        this.groupId = groupId;
+        this.mobileNumber = mobileNumber;
+        this.securityQuestion = securityQuestion;
+        this.securityAnswer = securityAnswer;
+        this.password = password;
+    }
+
+    // Getters and Setters
+    public Long getId() { return id; }
+
+    public void setId(Long id) { this.id = id; }
+
+    public String getUserId() { return userId; }
+
+    public void setUserId(String userId) { this.userId = userId; }
+
+    public String getGroupId() { return groupId; }
+
+    public void setGroupId(String groupId) { this.groupId = groupId; }
+
+    public String getMobileNumber() { return mobileNumber; }
+
+    public void setMobileNumber(String mobileNumber) { this.mobileNumber = mobileNumber; }
+
+    public String getSecurityQuestion() { return securityQuestion; }
+
+    public void setSecurityQuestion(String securityQuestion) { this.securityQuestion = securityQuestion; }
+
+    public String getSecurityAnswer() { return securityAnswer; }
+
+    public void setSecurityAnswer(String securityAnswer) { this.securityAnswer = securityAnswer; }
+
+    public String getPassword() { return password; }
+
+    public void setPassword(String password) { this.password = password; }
+}
+
+
+
+Repository — UserRepository.java
+
+package com.neobank.repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import com.neobank.model.User;
+import java.util.Optional;
+
+public interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByUserId(String userId);
+    Optional<User> findByUserIdAndPassword(String userId, String password);
+}
+
+
+
+Controller — AuthController.java
+
+package com.neobank.controller;
+
+import com.neobank.model.User;
+import com.neobank.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Optional;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    // 🟢 SIGN-UP (Data Entry)
+    @PostMapping("/signup")
+    public ResponseEntity<?> registerUser(@RequestBody User user) {
+        Optional<User> existing = userRepository.findByUserId(user.getUserId());
+        if (existing.isPresent()) {
+            return ResponseEntity.badRequest().body("User already exists with this User ID");
+        }
+        userRepository.save(user);
+        return ResponseEntity.ok("User registered successfully");
+    }
+
+    // 🟢 LOGIN (Authentication)
+    @PostMapping("/login")
+    public ResponseEntity<?> loginUser(@RequestBody User user) {
+        Optional<User> foundUser = userRepository.findByUserIdAndPassword(user.getUserId(), user.getPassword());
+
+        if (foundUser.isPresent()) {
+            // ✅ In future we’ll return a JWT token here
+            return ResponseEntity.ok("Login successful");
+        } else {
+            return ResponseEntity.status(401).body("Invalid credentials");
+        }
+    }
+
+    // 🟢 FORGOT PASSWORD - Step 1: Verify Security Details
+    @PostMapping("/verify-security")
+    public ResponseEntity<?> verifySecurityDetails(@RequestBody User request) {
+        Optional<User> user = userRepository.findByUserId(request.getUserId());
+        if (user.isPresent()) {
+            User u = user.get();
+            if (u.getMobileNumber().equals(request.getMobileNumber())
+                    && u.getSecurityQuestion().equals(request.getSecurityQuestion())
+                    && u.getSecurityAnswer().equalsIgnoreCase(request.getSecurityAnswer())) {
+                return ResponseEntity.ok("Verification successful. Proceed to reset password.");
+            }
+        }
+        return ResponseEntity.status(400).body("Invalid details. Please try again.");
+    }
+
+    // 🟢 FORGOT PASSWORD - Step 2: Reset Password
+    @PostMapping("/reset-password")
+    public ResponseEntity<?> resetPassword(@RequestParam String userId, @RequestParam String newPassword) {
+        Optional<User> user = userRepository.findByUserId(userId);
+        if (user.isPresent()) {
+            User u = user.get();
+            u.setPassword(newPassword);
+            userRepository.save(u);
+            return ResponseEntity.ok("Password reset successful");
+        }
+        return ResponseEntity.status(404).body("User not found");
+    }
+}
+
+
+
