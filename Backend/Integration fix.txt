@@ -1,0 +1,487 @@
+SecurityConfig.java
+
+package com.neobank.security;
+
+import com.neobank.service.CustomUserDetailsService;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@Configuration
+@EnableMethodSecurity
+public class SecurityConfig {
+
+    private final JwtTokenUtil jwtTokenUtil;
+    private final CustomUserDetailsService userDetailsService;
+
+    public SecurityConfig(JwtTokenUtil jwtTokenUtil, CustomUserDetailsService userDetailsService) {
+        this.jwtTokenUtil = jwtTokenUtil;
+        this.userDetailsService = userDetailsService;
+    }
+
+    @Bean
+    public JwtAuthenticationFilter jwtAuthenticationFilter() {
+        return new JwtAuthenticationFilter(jwtTokenUtil, userDetailsService);
+    }
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+          .csrf(csrf -> csrf.disable())
+          .cors(cors -> {})
+          .exceptionHandling(ex -> ex.authenticationEntryPoint(new JwtAuthenticationEntryPoint()))
+          .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+          .authorizeHttpRequests(auth -> auth
+              .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/v3/api-docs.yaml").permitAll()
+              .anyRequest().authenticated()
+          );
+
+        http.addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+        return http.build();
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        return config.getAuthenticationManager();
+    }
+
+    @Bean
+    public WebMvcConfigurer webMvcConfigurer() {
+        return new WebMvcConfigurer(){
+            @Override
+            public void addCorsMappings(CorsRegistry registry){
+                registry.addMapping("/**")
+                        .allowedOrigins("http://localhost:3000")
+                        .allowedMethods("GET","POST","PUT","DELETE","OPTIONS")
+                        .allowedHeaders("*")
+                        .allowCredentials(true);
+            }
+        };
+    }
+}
+
+📄 JwtAuthenticationFilter.java:-
+
+package com.neobank.security;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.web.filter.OncePerRequestFilter;
+import com.neobank.service.CustomUserDetailsService;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import java.io.IOException;
+
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtTokenUtil jwtTokenUtil;
+    private final CustomUserDetailsService userDetailsService;
+
+    public JwtAuthenticationFilter(JwtTokenUtil jwtTokenUtil, CustomUserDetailsService userDetailsService) {
+        this.jwtTokenUtil = jwtTokenUtil;
+        this.userDetailsService = userDetailsService;
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain chain) throws ServletException, IOException {
+        String header = request.getHeader("Authorization");
+        String token = null;
+        String username = null;
+        if (header != null && header.startsWith("Bearer ")) {
+            token = header.substring(7);
+            if (jwtTokenUtil.validateToken(token)) {
+                username = jwtTokenUtil.getUsernameFromToken(token);
+            }
+        }
+
+        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+            var auth = new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+            auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+            SecurityContextHolder.getContext().setAuthentication(auth);
+        }
+
+        chain.doFilter(request, response);
+    }
+}
+
+
+📄 JwtTokenUtil.java:-
+
+package com.neobank.security;
+
+import io.jsonwebtoken.*;
+import org.springframework.stereotype.Component;
+import java.util.Date;
+
+@Component
+public class JwtTokenUtil {
+    private final String SECRET_KEY = "simplekey"; // for testing only
+
+    public String generateToken(String username) {
+        return Jwts.builder()
+                .setSubject(username)
+                .setIssuedAt(new Date(System.currentTimeMillis()))
+                .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60)) // 1 hour
+                .signWith(SignatureAlgorithm.HS256, SECRET_KEY)
+                .compact();
+    }
+
+    public String getUsernameFromToken(String token) {
+        return Jwts.parser()
+                .setSigningKey(SECRET_KEY)
+                .parseClaimsJws(token)
+                .getBody()
+                .getSubject();
+    }
+
+    public boolean validateToken(String token) {
+        try {
+            Jwts.parser().setSigningKey(SECRET_KEY).parseClaimsJws(token);
+            return true;
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+}
+
+
+📄 AuthController.java:-
+
+package com.neobank.controller;
+
+import com.neobank.model.User;
+import com.neobank.repository.UserRepository;
+import com.neobank.security.JwtTokenUtil;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.*;
+import java.util.*;
+
+@RestController
+@RequestMapping("/api/auth")
+@CrossOrigin(origins = "*")
+public class AuthController {
+
+    @Autowired private UserRepository userRepository;
+    @Autowired private JwtTokenUtil jwtTokenUtil;
+    @Autowired private PasswordEncoder passwordEncoder;
+
+    // --- Signup ---
+    @PostMapping("/signup")
+    public ResponseEntity<?> signup(@RequestBody User user) {
+        Optional<User> existing = userRepository.findByUserId(user.getUserId());
+        if (existing.isPresent()) return ResponseEntity.badRequest().body("User already exists");
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        userRepository.save(user);
+        return ResponseEntity.ok(Map.of("message", "User registered successfully"));
+    }
+
+    // --- Login ---
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody Map<String, String> body) {
+        String userId = body.get("userId");
+        String password = body.get("password");
+        if (userId == null || password == null)
+            return ResponseEntity.badRequest().body("Missing credentials");
+
+        Optional<User> opt = userRepository.findByUserId(userId);
+        if (opt.isPresent() && passwordEncoder.matches(password, opt.get().getPassword())) {
+            String token = jwtTokenUtil.generateToken(userId);
+            return ResponseEntity.ok(Map.of("token", token));
+        }
+        return ResponseEntity.status(401).body("Invalid credentials");
+    }
+
+    // --- Forgot Password: Step 1 (Verify Security Details) ---
+    @PostMapping("/verify-security")
+    public ResponseEntity<?> verifySecurity(@RequestBody Map<String, String> body) {
+        String userId = body.get("userId");
+        String mobile = body.get("mobileNumber");
+        String question = body.get("securityQuestion");
+        String answer = body.get("securityAnswer");
+        if (userId == null) return ResponseEntity.badRequest().body("Missing userId");
+
+        Optional<User> opt = userRepository.findByUserId(userId);
+        if (opt.isPresent()) {
+            User u = opt.get();
+            boolean ok = Objects.equals(u.getMobileNumber(), mobile)
+                    && Objects.equals(u.getSecurityQuestion(), question)
+                    && u.getSecurityAnswer() != null
+                    && u.getSecurityAnswer().equalsIgnoreCase(answer);
+            if (ok) {
+                return ResponseEntity.ok(Map.of("message", "Verification successful"));
+            }
+        }
+        return ResponseEntity.status(400).body("Invalid details");
+    }
+
+    // --- Forgot Password: Step 2 (Reset Password) ---
+    @PostMapping("/reset-password")
+    public ResponseEntity<?> resetPassword(@RequestParam String userId, @RequestParam String newPassword) {
+        Optional<User> opt = userRepository.findByUserId(userId);
+        if (opt.isPresent()) {
+            User u = opt.get();
+            u.setPassword(passwordEncoder.encode(newPassword));
+            userRepository.save(u);
+            return ResponseEntity.ok(Map.of("message", "Password reset successful"));
+        }
+        return ResponseEntity.status(404).body("User not found");
+    }
+}
+
+
+📄 src/api.js:-
+
+
+export const API_BASE_URL = "http://localhost:8080";
+
+export async function apiFetch(endpoint, options = {}) {
+  const token = localStorage.getItem("token");
+
+  const headers = {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...options.headers,
+  };
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers,
+  });
+
+  if (response.status === 401) {
+    console.warn("Session expired or invalid token");
+    localStorage.removeItem("token");
+    window.location.href = "/";
+  }
+
+  return response;
+}
+
+
+📄 src/components/Login.js:-
+
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { apiFetch } from "../api";
+import "./login.css";
+
+function Login() {
+  const navigate = useNavigate();
+  const [form, setForm] = useState({ userId: "", password: "" });
+  const [error, setError] = useState("");
+
+  const handleChange = (e) =>
+    setForm({ ...form, [e.target.name]: e.target.value });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    try {
+      const response = await apiFetch("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify(form),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        localStorage.setItem("token", data.token);
+        navigate("/home");
+      } else {
+        setError("Invalid credentials. Please check your User ID or Password.");
+      }
+    } catch (err) {
+      console.error("Server error:", err);
+      setError("Server error. Please try again later.");
+    }
+  };
+
+  return (
+    <div className="login-container">
+      <form className="login-form" onSubmit={handleSubmit}>
+        <h2>Login</h2>
+        <input
+          type="text"
+          name="userId"
+          placeholder="User ID"
+          value={form.userId}
+          onChange={handleChange}
+          required
+        />
+        <input
+          type="password"
+          name="password"
+          placeholder="Password"
+          value={form.password}
+          onChange={handleChange}
+          required
+        />
+        {error && <p className="error-text">{error}</p>}
+        <button type="submit">Continue</button>
+      </form>
+    </div>
+  );
+}
+
+export default Login;
+
+
+📄 src/components/ForgotPassword.js
+
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { apiFetch } from "../api";
+import "./login.css";
+
+function ForgotPassword() {
+  const navigate = useNavigate();
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState({
+    userId: "",
+    mobileNumber: "",
+    securityQuestion: "",
+    securityAnswer: "",
+    newPassword: "",
+  });
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const handleChange = (e) =>
+    setForm({ ...form, [e.target.name]: e.target.value });
+
+  // Step 1: Verify user details
+  const handleVerify = async (e) => {
+    e.preventDefault();
+    setError("");
+    try {
+      const response = await apiFetch("/api/auth/verify-security", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: form.userId,
+          mobileNumber: form.mobileNumber,
+          securityQuestion: form.securityQuestion,
+          securityAnswer: form.securityAnswer,
+        }),
+      });
+
+      if (response.ok) {
+        setMessage("Verification successful! You can now reset your password.");
+        setStep(2);
+      } else {
+        setError("Verification failed. Please check your details.");
+      }
+    } catch (err) {
+      console.error("Server error:", err);
+      setError("Server error. Try again later.");
+    }
+  };
+
+  // Step 2: Reset password
+  const handleReset = async (e) => {
+    e.preventDefault();
+    setError("");
+    try {
+      const params = new URLSearchParams({
+        userId: form.userId,
+        newPassword: form.newPassword,
+      });
+      const response = await apiFetch(`/api/auth/reset-password?${params}`, {
+        method: "POST",
+      });
+
+      if (response.ok) {
+        setMessage("Password reset successful! Redirecting to login...");
+        setTimeout(() => navigate("/"), 1500);
+      } else {
+        setError("Failed to reset password. Try again.");
+      }
+    } catch (err) {
+      console.error("Server error:", err);
+      setError("Server error. Please try again later.");
+    }
+  };
+
+  return (
+    <div className="login-container">
+      {step === 1 ? (
+        <form className="login-form" onSubmit={handleVerify}>
+          <h2>Forgot Password</h2>
+          <input
+            type="text"
+            name="userId"
+            placeholder="User ID"
+            value={form.userId}
+            onChange={handleChange}
+            required
+          />
+          <input
+            type="text"
+            name="mobileNumber"
+            placeholder="Registered Mobile Number"
+            value={form.mobileNumber}
+            onChange={handleChange}
+            required
+          />
+          <input
+            type="text"
+            name="securityQuestion"
+            placeholder="Security Question"
+            value={form.securityQuestion}
+            onChange={handleChange}
+            required
+          />
+          <input
+            type="text"
+            name="securityAnswer"
+            placeholder="Security Answer"
+            value={form.securityAnswer}
+            onChange={handleChange}
+            required
+          />
+          {error && <p className="error-text">{error}</p>}
+          {message && <p className="success-text">{message}</p>}
+          <button type="submit">Verify Details</button>
+        </form>
+      ) : (
+        <form className="login-form" onSubmit={handleReset}>
+          <h2>Reset Password</h2>
+          <input
+            type="password"
+            name="newPassword"
+            placeholder="Enter New Password"
+            value={form.newPassword}
+            onChange={handleChange}
+            required
+          />
+          {error && <p className="error-text">{error}</p>}
+          {message && <p className="success-text">{message}</p>}
+          <button type="submit">Reset Password</button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+export default ForgotPassword;
