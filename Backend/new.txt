@@ -1,0 +1,133 @@
+package com.neobank.security;
+
+import io.jsonwebtoken.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+import java.util.Date;
+
+@Component
+public class JwtTokenUtil {
+
+    @Value("${jwt.secret}")
+    private String secret;
+
+    @Value("${jwt.expirationMs}")
+    private long expirationMs;
+
+    // Generate JWT token
+    public String generateToken(String username) {
+        Date now = new Date();
+        return Jwts.builder()
+                .setSubject(username)
+                .setIssuedAt(now)
+                .setExpiration(new Date(now.getTime() + expirationMs))
+                .signWith(SignatureAlgorithm.HS256, secret)
+                .compact();
+    }
+
+    // Extract username from token
+    public String getUsernameFromToken(String token) {
+        return Jwts.parser()
+                .setSigningKey(secret)
+                .parseClaimsJws(token)
+                .getBody()
+                .getSubject();
+    }
+
+    // Validate token
+    public boolean validateToken(String token) {
+        try {
+            Jwts.parser().setSigningKey(secret).parseClaimsJws(token);
+            return true;
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+}
+
+
+package com.neobank.controller;
+
+import com.neobank.model.User;
+import com.neobank.repository.UserRepository;
+import com.neobank.security.JwtTokenUtil;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Optional;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private JwtTokenUtil jwtTokenUtil;
+
+    // SIGN-UP (Data Entry)
+    @PostMapping("/signup")
+    public ResponseEntity<?> registerUser(@RequestBody User user) {
+        Optional<User> existing = userRepository.findByUserId(user.getUserId());
+        if (existing.isPresent()) {
+            return ResponseEntity.badRequest().body("User already exists with this User ID");
+        }
+        userRepository.save(user);
+        return ResponseEntity.ok("User registered successfully");
+    }
+
+    // LOGIN (Authentication)
+    @PostMapping("/login")
+    public ResponseEntity<?> loginUser(@RequestBody User user) {
+        Optional<User> foundUser = userRepository.findByUserIdAndPassword(user.getUserId(), user.getPassword());
+        if (foundUser.isPresent()) {
+            String token = jwtTokenUtil.generateToken(foundUser.get().getUserId());
+            return ResponseEntity.ok(token);
+        } else {
+            return ResponseEntity.status(401).body("Invalid credentials");
+        }
+    }
+
+    // FORGOT PASSWORD - Step 1: Verify Security Details
+    @PostMapping("/verify-security")
+    public ResponseEntity<?> verifySecurityDetails(@RequestBody User request) {
+        Optional<User> user = userRepository.findByUserId(request.getUserId());
+        if (user.isPresent()) {
+            User u = user.get();
+            if (u.getMobileNumber().equals(request.getMobileNumber())
+                    && u.getSecurityQuestion().equals(request.getSecurityQuestion())
+                    && u.getSecurityAnswer().equalsIgnoreCase(request.getSecurityAnswer())) {
+                return ResponseEntity.ok("Verification successful. Proceed to reset password.");
+            }
+        }
+        return ResponseEntity.status(400).body("Invalid details. Please try again.");
+    }
+
+    // FORGOT PASSWORD - Step 2: Reset Password
+    @PostMapping("/reset-password")
+    public ResponseEntity<?> resetPassword(@RequestParam String userId, @RequestParam String newPassword) {
+        Optional<User> user = userRepository.findByUserId(userId);
+        if (user.isPresent()) {
+            User u = user.get();
+            u.setPassword(newPassword);
+            userRepository.save(u);
+            return ResponseEntity.ok("Password reset successful");
+        }
+        return ResponseEntity.status(404).body("User not found");
+    }
+}
+
+
+package com.neobank.repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import com.neobank.model.User;
+import java.util.Optional;
+
+public interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByUserId(String userId);
+    Optional<User> findByUserIdAndPassword(String userId, String password);
+}
