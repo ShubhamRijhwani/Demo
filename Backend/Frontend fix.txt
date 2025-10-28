@@ -19,28 +19,29 @@ import "./forgetpassword.css";
 
 function ForgetPassword() {
   const [step, setStep] = useState(1);
+  const [questions, setQuestions] = useState([]);
   const [form, setForm] = useState({
     userId: "",
     mobileNumber: "",
-    securityQuestionId: "",
-    answer: "",
+    securityQuestion: "",
+    securityAnswer: "",
     newPassword: "",
     confirmPassword: "",
   });
-
-  const [questions, setQuestions] = useState([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Load all security questions
+  // Fetch all security questions on mount
   useEffect(() => {
     async function fetchQuestions() {
       try {
-        const res = await apiFetch("/api/security-questions");
-        const data = await res.json();
+        const response = await apiFetch("/api/auth/security-questions", {
+          method: "GET",
+        });
+        const data = await response.json();
         setQuestions(data);
       } catch (err) {
-        console.error("Error loading questions:", err);
+        console.error("Failed to fetch security questions:", err);
       }
     }
     fetchQuestions();
@@ -50,42 +51,36 @@ function ForgetPassword() {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  // Step 1: Verify user details
+  // Step 1 → Verify user details
   const handleVerify = async (e) => {
     e.preventDefault();
     setError("");
     setSuccess("");
 
-    if (!form.userId || !form.mobileNumber || !form.securityQuestionId || !form.answer) {
-      setError("Please fill all fields.");
-      return;
-    }
-
     try {
-      const res = await apiFetch("/api/auth/verify-security", {
+      const response = await apiFetch("/api/auth/verify-security", {
         method: "POST",
         body: JSON.stringify({
           userId: form.userId,
           mobileNumber: form.mobileNumber,
-          securityQuestionId: form.securityQuestionId,
-          securityAnswer: form.answer,
+          securityQuestion: form.securityQuestion,
+          securityAnswer: form.securityAnswer,
         }),
       });
 
-      if (res.ok) {
-        setSuccess("Verification successful! Proceed to reset password...");
-        setTimeout(() => setStep(2), 1000);
+      if (response.ok) {
+        setSuccess("Verification successful. Please reset your password.");
+        setStep(2);
       } else {
-        const msg = await res.text();
-        setError(msg || "Invalid details. Try again.");
+        const msg = await response.text();
+        setError(msg || "Verification failed. Check your details.");
       }
     } catch (err) {
-      console.error("Verification error:", err);
-      setError("Server error. Try again later.");
+      setError("Server error. Please try again later.");
     }
   };
 
-  // Step 2: Reset password
+  // Step 2 → Reset password
   const handleReset = async (e) => {
     e.preventDefault();
     setError("");
@@ -97,28 +92,35 @@ function ForgetPassword() {
     }
 
     try {
-      const res = await apiFetch(
+      const response = await apiFetch(
         `/api/auth/reset-password?userId=${form.userId}&newPassword=${form.newPassword}`,
         { method: "POST" }
       );
 
-      if (res.ok) {
-        setSuccess("Password reset successful! Redirecting to login...");
-        setTimeout(() => (window.location.href = "/"), 1500);
+      if (response.ok) {
+        setSuccess("Password reset successful. You can now login.");
+        setStep(1);
+        setForm({
+          userId: "",
+          mobileNumber: "",
+          securityQuestion: "",
+          securityAnswer: "",
+          newPassword: "",
+          confirmPassword: "",
+        });
       } else {
-        const msg = await res.text();
-        setError(msg || "Password reset failed.");
+        const msg = await response.text();
+        setError(msg || "Error resetting password.");
       }
     } catch (err) {
-      console.error("Reset error:", err);
-      setError("Server error. Try again later.");
+      setError("Server error. Please try again later.");
     }
   };
 
   return (
     <div className="forget-container">
       <div className="forget-box">
-        <h2>{step === 1 ? "Verify Identity" : "Reset Password"}</h2>
+        <h2>{step === 1 ? "Verify Your Details" : "Reset Password"}</h2>
 
         {error && <p className="error-text">{error}</p>}
         {success && <p className="success-text">{success}</p>}
@@ -145,15 +147,15 @@ function ForgetPassword() {
 
             <label>Security Question:</label>
             <select
-              name="securityQuestionId"
-              value={form.securityQuestionId}
+              name="securityQuestion"
+              value={form.securityQuestion}
               onChange={handleChange}
               required
             >
               <option value="">-- Select a Question --</option>
-              {questions.map((q) => (
-                <option key={q.id} value={q.id}>
-                  {q.question}
+              {questions.map((q, i) => (
+                <option key={i} value={q}>
+                  {q}
                 </option>
               ))}
             </select>
@@ -161,8 +163,8 @@ function ForgetPassword() {
             <label>Answer:</label>
             <input
               type="text"
-              name="answer"
-              value={form.answer}
+              name="securityAnswer"
+              value={form.securityAnswer}
               onChange={handleChange}
               required
             />
@@ -211,6 +213,7 @@ function ForgetPassword() {
 }
 
 export default ForgetPassword;
+
 
 
 
@@ -298,4 +301,5 @@ function Login() {
 }
 
 export default Login;
+
 
