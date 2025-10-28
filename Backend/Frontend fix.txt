@@ -14,13 +14,14 @@ public ResponseEntity<?> getSecurityQuestions() {
 
 
 import React, { useState, useEffect } from "react";
-import { getSecurityQuestions, verifySecurityAnswer, resetPassword } from "../api";
+import { apiFetch } from "../api";
 import "./forgetpassword.css";
 
 function ForgetPassword() {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
     userId: "",
+    mobileNumber: "",
     securityQuestionId: "",
     answer: "",
     newPassword: "",
@@ -31,14 +32,15 @@ function ForgetPassword() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Fetch all security questions on mount
+  // Load all security questions
   useEffect(() => {
     async function fetchQuestions() {
       try {
-        const res = await getSecurityQuestions();
-        setQuestions(res.data);
+        const res = await apiFetch("/api/security-questions");
+        const data = await res.json();
+        setQuestions(data);
       } catch (err) {
-        console.error("Failed to load questions:", err);
+        console.error("Error loading questions:", err);
       }
     }
     fetchQuestions();
@@ -48,26 +50,42 @@ function ForgetPassword() {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
+  // Step 1: Verify user details
   const handleVerify = async (e) => {
     e.preventDefault();
     setError("");
+    setSuccess("");
+
+    if (!form.userId || !form.mobileNumber || !form.securityQuestionId || !form.answer) {
+      setError("Please fill all fields.");
+      return;
+    }
+
     try {
-      const res = await verifySecurityAnswer({
-        userId: form.userId,
-        questionId: form.securityQuestionId,
-        answer: form.answer,
+      const res = await apiFetch("/api/auth/verify-security", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: form.userId,
+          mobileNumber: form.mobileNumber,
+          securityQuestionId: form.securityQuestionId,
+          securityAnswer: form.answer,
+        }),
       });
-      if (res.data === true) {
-        setStep(2);
-        setSuccess("Security answer verified successfully.");
+
+      if (res.ok) {
+        setSuccess("Verification successful! Proceed to reset password...");
+        setTimeout(() => setStep(2), 1000);
       } else {
-        setError("Invalid security answer.");
+        const msg = await res.text();
+        setError(msg || "Invalid details. Try again.");
       }
     } catch (err) {
-      setError("Verification failed. Please try again.");
+      console.error("Verification error:", err);
+      setError("Server error. Try again later.");
     }
   };
 
+  // Step 2: Reset password
   const handleReset = async (e) => {
     e.preventDefault();
     setError("");
@@ -79,33 +97,28 @@ function ForgetPassword() {
     }
 
     try {
-      const res = await resetPassword({
-        userId: form.userId,
-        newPassword: form.newPassword,
-      });
+      const res = await apiFetch(
+        `/api/auth/reset-password?userId=${form.userId}&newPassword=${form.newPassword}`,
+        { method: "POST" }
+      );
 
-      if (res.data === "Password reset successfully") {
-        setSuccess("Password has been reset successfully. You can now login.");
-        setStep(1);
-        setForm({
-          userId: "",
-          securityQuestionId: "",
-          answer: "",
-          newPassword: "",
-          confirmPassword: "",
-        });
+      if (res.ok) {
+        setSuccess("Password reset successful! Redirecting to login...");
+        setTimeout(() => (window.location.href = "/"), 1500);
       } else {
-        setError("Reset failed. Try again.");
+        const msg = await res.text();
+        setError(msg || "Password reset failed.");
       }
     } catch (err) {
-      setError("Error resetting password.");
+      console.error("Reset error:", err);
+      setError("Server error. Try again later.");
     }
   };
 
   return (
     <div className="forget-container">
       <div className="forget-box">
-        <h2>{step === 1 ? "Verify Security Question" : "Reset Password"}</h2>
+        <h2>{step === 1 ? "Verify Identity" : "Reset Password"}</h2>
 
         {error && <p className="error-text">{error}</p>}
         {success && <p className="success-text">{success}</p>}
@@ -117,6 +130,15 @@ function ForgetPassword() {
               type="text"
               name="userId"
               value={form.userId}
+              onChange={handleChange}
+              required
+            />
+
+            <label>Mobile Number:</label>
+            <input
+              type="text"
+              name="mobileNumber"
+              value={form.mobileNumber}
               onChange={handleChange}
               required
             />
@@ -189,6 +211,8 @@ function ForgetPassword() {
 }
 
 export default ForgetPassword;
+
+
 
 
 
