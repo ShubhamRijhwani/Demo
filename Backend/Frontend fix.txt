@@ -1,0 +1,277 @@
+// ✅ Add this inside AuthController.java
+@GetMapping("/security-questions")
+public ResponseEntity<?> getSecurityQuestions() {
+    List<String> questions = userRepository.findAll()
+            .stream()
+            .map(User::getSecurityQuestion)
+            .filter(Objects::nonNull)
+            .distinct()
+            .toList();
+
+    return ResponseEntity.ok(questions);
+}
+
+
+
+import React, { useState, useEffect } from "react";
+import { getSecurityQuestions, verifySecurityAnswer, resetPassword } from "../api";
+import "./forgetpassword.css";
+
+function ForgetPassword() {
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState({
+    userId: "",
+    securityQuestionId: "",
+    answer: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+
+  const [questions, setQuestions] = useState([]);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  // Fetch all security questions on mount
+  useEffect(() => {
+    async function fetchQuestions() {
+      try {
+        const res = await getSecurityQuestions();
+        setQuestions(res.data);
+      } catch (err) {
+        console.error("Failed to load questions:", err);
+      }
+    }
+    fetchQuestions();
+  }, []);
+
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleVerify = async (e) => {
+    e.preventDefault();
+    setError("");
+    try {
+      const res = await verifySecurityAnswer({
+        userId: form.userId,
+        questionId: form.securityQuestionId,
+        answer: form.answer,
+      });
+      if (res.data === true) {
+        setStep(2);
+        setSuccess("Security answer verified successfully.");
+      } else {
+        setError("Invalid security answer.");
+      }
+    } catch (err) {
+      setError("Verification failed. Please try again.");
+    }
+  };
+
+  const handleReset = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSuccess("");
+
+    if (form.newPassword !== form.confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    try {
+      const res = await resetPassword({
+        userId: form.userId,
+        newPassword: form.newPassword,
+      });
+
+      if (res.data === "Password reset successfully") {
+        setSuccess("Password has been reset successfully. You can now login.");
+        setStep(1);
+        setForm({
+          userId: "",
+          securityQuestionId: "",
+          answer: "",
+          newPassword: "",
+          confirmPassword: "",
+        });
+      } else {
+        setError("Reset failed. Try again.");
+      }
+    } catch (err) {
+      setError("Error resetting password.");
+    }
+  };
+
+  return (
+    <div className="forget-container">
+      <div className="forget-box">
+        <h2>{step === 1 ? "Verify Security Question" : "Reset Password"}</h2>
+
+        {error && <p className="error-text">{error}</p>}
+        {success && <p className="success-text">{success}</p>}
+
+        {step === 1 ? (
+          <form onSubmit={handleVerify}>
+            <label>User ID:</label>
+            <input
+              type="text"
+              name="userId"
+              value={form.userId}
+              onChange={handleChange}
+              required
+            />
+
+            <label>Security Question:</label>
+            <select
+              name="securityQuestionId"
+              value={form.securityQuestionId}
+              onChange={handleChange}
+              required
+            >
+              <option value="">-- Select a Question --</option>
+              {questions.map((q) => (
+                <option key={q.id} value={q.id}>
+                  {q.question}
+                </option>
+              ))}
+            </select>
+
+            <label>Answer:</label>
+            <input
+              type="text"
+              name="answer"
+              value={form.answer}
+              onChange={handleChange}
+              required
+            />
+
+            <button type="submit" className="btn-primary">
+              Verify
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleReset}>
+            <label>User ID:</label>
+            <input
+              type="text"
+              name="userId"
+              value={form.userId}
+              onChange={handleChange}
+              required
+            />
+
+            <label>New Password:</label>
+            <input
+              type="password"
+              name="newPassword"
+              value={form.newPassword}
+              onChange={handleChange}
+              required
+            />
+
+            <label>Confirm Password:</label>
+            <input
+              type="password"
+              name="confirmPassword"
+              value={form.confirmPassword}
+              onChange={handleChange}
+              required
+            />
+
+            <button type="submit" className="btn-primary">
+              Reset Password
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default ForgetPassword;
+
+
+
+import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import api from "../api"; // ✅ import your centralized axios instance
+import "./login.css";
+
+function Login() {
+  const navigate = useNavigate();
+  const [form, setForm] = useState({ userId: "", password: "" });
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  // 🔒 Redirect if already logged in
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (token) navigate("/home");
+  }, [navigate]);
+
+  const handleChange = (e) =>
+    setForm({ ...form, [e.target.name]: e.target.value });
+
+  const handleSubmit = async () => {
+    setError("");
+    setLoading(true);
+
+    try {
+      // ✅ Use api.js instead of fetch
+      const response = await api.post("/auth/login", form);
+
+      if (response.status === 200 && response.data.token) {
+        localStorage.setItem("token", response.data.token);
+
+        // Small delay for smoother UX
+        setTimeout(() => {
+          setLoading(false);
+          navigate("/home");
+        }, 700);
+      } else {
+        setError("Invalid credentials. Please check your ID or Password.");
+        setLoading(false);
+        setTimeout(() => setError(""), 3000);
+      }
+    } catch (err) {
+      console.error("Login error:", err);
+      if (err.response && err.response.status === 401) {
+        setError("Invalid credentials. Please check your ID or Password.");
+      } else {
+        setError("Server error. Please try again later.");
+      }
+      setLoading(false);
+      setTimeout(() => setError(""), 3000);
+    }
+  };
+
+  return (
+    <div className="login-container">
+      <h2>Login</h2>
+
+      <input
+        type="text"
+        name="userId"
+        placeholder="User ID"
+        value={form.userId}
+        onChange={handleChange}
+      />
+      <input
+        type="password"
+        name="password"
+        placeholder="Password"
+        value={form.password}
+        onChange={handleChange}
+      />
+
+      <button type="button" onClick={handleSubmit} disabled={loading}>
+        {loading ? "Checking..." : "Continue"}
+      </button>
+
+      {error && <p className="error-message">{error}</p>}
+    </div>
+  );
+}
+
+export default Login;
+
