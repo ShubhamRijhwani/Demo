@@ -1,138 +1,117 @@
 // src/services/api.js
 
-const API_BASE_URL = "http://localhost:8080/api"; // Your Spring Boot backend URL
+export const API_BASE_URL = "http://localhost:8080"; // Spring Boot base URL
 
-// ✅ Helper to include token in headers
-const getAuthHeaders = () => {
-  const token = localStorage.getItem("token"); // stored after login
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
+// ✅ Common API function that auto-injects JWT token
+export async function apiFetch(endpoint, options = {}) {
+  const token = localStorage.getItem("token");
 
-// ✅ Common response handler
-const handleResponse = async (response) => {
+  const headers = {
+    ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...options.headers,
+  };
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers,
+  });
+
+  if (response.status === 401) {
+    console.warn("Session expired or invalid token");
+    localStorage.removeItem("token");
+    window.location.href = "/";
+  }
+
   if (!response.ok) {
     const errorText = await response.text();
-    console.error("API Error Response:", errorText);
-    throw new Error(`HTTP error! Status: ${response.status} - ${errorText || response.statusText}`);
+    console.error("API Error:", errorText);
+    throw new Error(`HTTP ${response.status} - ${errorText || response.statusText}`);
   }
 
   const contentType = response.headers.get("content-type");
   if (contentType && contentType.indexOf("application/json") !== -1) {
     return response.json();
-  } else {
-    return null; // or response.text() if needed
   }
-};
+  return null;
+}
 
-// --- Batch API Calls ---
-export const getBatches = () => {
-  return fetch(`${API_BASE_URL}/batches`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-    },
-  }).then(handleResponse);
-};
+/* -------------------------------------------------------------------------- */
+/*                                 📦 BATCH APIs                              */
+/* -------------------------------------------------------------------------- */
 
-export const createBatch = (name) => {
-  return fetch(`${API_BASE_URL}/batches`, {
+export const getBatches = () => apiFetch("/api/batches");
+
+export const createBatch = (name) =>
+  apiFetch("/api/batches", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-    },
     body: JSON.stringify({ name }),
-  }).then(handleResponse);
-};
+  });
 
-export const updateBatchName = (batchId, name) => {
-  return fetch(`${API_BASE_URL}/batches/${batchId}`, {
+export const updateBatchName = (batchId, name) =>
+  apiFetch(`/api/batches/${batchId}`, {
     method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-    },
     body: JSON.stringify({ name }),
-  }).then(handleResponse);
-};
+  });
 
-export const deleteBatch = (batchId) => {
-  return fetch(`${API_BASE_URL}/batches/${batchId}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(),
-  }).then(handleResponse);
-};
+export const deleteBatch = (batchId) =>
+  apiFetch(`/api/batches/${batchId}`, { method: "DELETE" });
 
-export const initiatePayment = (batchId, paymentDetails) => {
-  return fetch(`${API_BASE_URL}/batches/${batchId}/initiate-payment`, {
+export const initiatePayment = (batchId, paymentDetails) =>
+  apiFetch(`/api/batches/${batchId}/initiate-payment`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-    },
     body: JSON.stringify(paymentDetails),
-  }).then(handleResponse);
-};
+  });
 
-// --- Employee API Calls ---
-export const getEmployees = () => {
-  return fetch(`${API_BASE_URL}/employees`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-    },
-  }).then(handleResponse);
-};
+/* -------------------------------------------------------------------------- */
+/*                                👩‍💼 EMPLOYEE APIs                            */
+/* -------------------------------------------------------------------------- */
 
-export const addEmployee = (employeeData) => {
-  return fetch(`${API_BASE_URL}/employees`, {
+export const getEmployees = () => apiFetch("/api/employees");
+
+export const addEmployee = (employeeData) =>
+  apiFetch("/api/employees", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-    },
     body: JSON.stringify(employeeData),
-  }).then(handleResponse);
-};
+  });
 
-export const deleteEmployee = (employeeId) => {
-  return fetch(`${API_BASE_URL}/employees/${employeeId}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(),
-  }).then(handleResponse);
-};
+export const deleteEmployee = (employeeId) =>
+  apiFetch(`/api/employees/${employeeId}`, { method: "DELETE" });
 
-export const assignEmployeeToBatch = (employeeId, batchId) => {
-  return fetch(`${API_BASE_URL}/employees/${employeeId}/assign/${batchId}`, {
-    method: "PUT",
-    headers: getAuthHeaders(),
-  }).then(handleResponse);
-};
+export const assignEmployeeToBatch = (employeeId, batchId) =>
+  apiFetch(`/api/employees/${employeeId}/assign/${batchId}`, { method: "PUT" });
 
-export const unassignEmployee = (employeeId) => {
-  return fetch(`${API_BASE_URL}/employees/${employeeId}/unassign`, {
-    method: "PUT",
-    headers: getAuthHeaders(),
-  }).then(handleResponse);
-};
+export const unassignEmployee = (employeeId) =>
+  apiFetch(`/api/employees/${employeeId}/unassign`, { method: "PUT" });
 
 export const bulkUploadEmployees = (file) => {
   const formData = new FormData();
   formData.append("file", file);
 
-  return fetch(`${API_BASE_URL}/employees/bulk-upload`, {
+  return apiFetch("/api/employees/bulk-upload", {
     method: "POST",
-    headers: getAuthHeaders(), // optional, only if backend secures this endpoint
+    headers: {}, // browser sets multipart/form-data automatically
     body: formData,
-  }).then(handleResponse);
+  });
 };
 
-// --- Bank Account API Calls ---
-export const getBankAccounts = () => {
-  return fetch(`${API_BASE_URL}/bank-accounts`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-    },
-  }).then(handleResponse);
-};
+/* -------------------------------------------------------------------------- */
+/*                               🏦 BANK APIs                                 */
+/* -------------------------------------------------------------------------- */
+
+export const getBankAccounts = () => apiFetch("/api/bank-accounts");
+
+/* -------------------------------------------------------------------------- */
+/*                              💰 PAYMENT APIs                               */
+/* -------------------------------------------------------------------------- */
+
+export const getPayments = () => apiFetch("/api/payments");
+
+export const getPaymentById = (paymentId) =>
+  apiFetch(`/api/payments/${paymentId}`);
+
+export const processPayment = (paymentId, details) =>
+  apiFetch(`/api/payments/${paymentId}/process`, {
+    method: "POST",
+    body: JSON.stringify(details),
+  });
